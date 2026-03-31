@@ -1,36 +1,77 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GRAVEYARD
+**Cross-Domain Failure Intelligence System**
 
-## Getting Started
+[![Status: Early Access](https://img.shields.io/badge/Status-Early_Access-red.svg?style=flat-square)](#) 
+[![Stack: Next.js 14](https://img.shields.io/badge/Stack-Next.js_14-black.svg?style=flat-square)](#)
 
-First, run the development server:
+> Every field relearns the same lessons. Graveyard indexes failure so you don't have to repeat it.
 
-```bash
+Graveyard is an open-source research instrument designed to extract, synthesize, and categorize structural failure mechanisms across disparate professional domains. Instead of presenting surface-level symptoms, Graveyard acts as a failure intelligence engine—deploying neural search and 120B parameter large language models to uncover the abstracted patterns and broken assumptions behind why complex systems crash, businesses fold, and technologies fail.
+
+---
+
+## 🏛 The Architecture
+
+Graveyard operates entirely within the Next.js `App Router`, operating a dual-pronged retrieval pipeline optimized for speed and analytical depth.
+
+1. **Retrieval**: 
+    - The engine simultaneously hits an **Upstash Redis** index mapping exact query similarity against previously ingested failure events.
+    - In parallel, it dispatches a neural web query via the **Exa AI API** to crawl live unstructured diagnostics, post-mortems, and incident reports.
+2. **Synthesis (Streaming)**:
+    - Results are merged and fed into OpenRouter (`nvidia/nemotron-3-super-120b-a12b:free`) to synthesize a **Taxonomy Card** in real-time.
+    - The UI acts as a stream consumer, assembling the mechanisms, cross-domain translations, and uncomfortable truths into an editorial taxonomy as bytes arrive.
+3. **Database Accretion**:
+    - After the real-time stream closes, the engine triggers a deferred background job. It re-evaluates raw Exa results, securely extracting high-confidence novel failures, and writes them back into Redis—meaning the system grows structurally smarter with every query.
+
+## 🛠 Tech Stack
+
+* **Framework:** Next.js 14 (App Router)
+* **Design:** React, Custom CSS Tokens, WorldQuant/Foundry Editorial Aesthetic
+* **Live Search:** Exa AI (Neural Web Search)
+* **Inference Engine:** OpenRouter (Nemotron-3 Super 120B)
+* **Storage/Index:** Upstash Redis (Serverless)
+
+---
+
+## 🚀 Setup & Deployment
+
+### 1. Prerequisites
+You need Node.js `^18.17.0` and API keys for Exa, OpenRouter, and Upstash Redis.
+
+### 2. Installation
+Clone the repository and install the dependencies:
+\`\`\`bash
+git clone https://github.com/your-username/graveyard.git
+cd graveyard
+npm install
+\`\`\`
+
+### 3. Environment Configuration
+Create a \`.env.local\` file in the root directory:
+\`\`\`env
+EXA_API_KEY=your_exa_key
+OPENROUTER_API_KEY=your_openrouter_key
+UPSTASH_REDIS_REST_URL=your_upstash_url
+UPSTASH_REDIS_REST_TOKEN=your_upstash_token
+\`\`\`
+
+### 4. Database Seeding
+Initialize your Upstash Redis database with the baseline 10 high-confidence historical failures (e.g., Air France 447, Theranos, Healthcare.gov).
+\`\`\`bash
+npm run seed
+\`\`\`
+
+### 5. Running the Engine
+Start your local development server:
+\`\`\`bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+\`\`\`
+Visit \`http://localhost:3000\` to access the terminal.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## ⚖️ Aesthetic Principles
+The visual layer of Graveyard is designed to evoke cold authority. It utilizes a three-tiered typography system (`Syne` for display, `IBM Plex Mono` for raw data, `DM Sans` for legibility), strict grid constraints, staggering micro-animations, and a completely desaturated palette governed by variable accents (`--accent-red`, `--accent-teal`, `--accent-amber`). This is not a consumer app. It is a research instrument.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## License
+MIT License.

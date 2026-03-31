@@ -11,16 +11,8 @@ const SkullIcon = () => (
   </svg>
 )
 
-const LoadingSequence = () => {
-  const [step, setStep] = useState(0)
+const LoadingSequence = ({ currentPhase }: { currentPhase: string }) => {
   const [dots, setDots] = useState(1)
-
-  useEffect(() => {
-    const stepInterval = setInterval(() => {
-      setStep(s => (s < 3 ? s + 1 : 3))
-    }, 600)
-    return () => clearInterval(stepInterval)
-  }, [])
 
   useEffect(() => {
     const dotsInterval = setInterval(() => {
@@ -29,43 +21,56 @@ const LoadingSequence = () => {
     return () => clearInterval(dotsInterval)
   }, [])
 
-  const lines = [
-    'RETRIEVING INDEXED FAILURES',
-    'QUERYING LIVE SOURCES',
-    'ABSTRACTING MECHANISMS',
-    'SYNTHESIZING TAXONOMY'
+  const phases = [
+    'RETRIEVING_INDEXED_FAILURES',
+    'QUERYING_LIVE_SOURCES',
+    'SYNTHESIZING_TAXONOMY'
   ]
+  const currentIndex = phases.indexOf(currentPhase);
 
   const dotString = Array(dots).fill('·').join('') + Array(3 - dots).fill('\u00A0').join('')
 
   return (
     <div style={{ marginTop: '32px' }}>
-      {lines.map((text, idx) => (
-        <div 
-          key={idx} 
-          className="fade-in"
-          style={{ 
-            fontFamily: 'var(--font-mono)', 
-            fontSize: '11px', 
-            color: 'var(--text-secondary)',
-            marginBottom: '8px',
-            visibility: step >= idx ? 'visible' : 'hidden'
-          }}
-        >
-          {text} {step > idx ? <span style={{ color: 'var(--accent-teal)' }}>✓</span> : <span>{Number(dots) ? dotString : '···'}</span>}
-        </div>
-      ))}
+      {phases.map((phase, idx) => {
+        if (idx > ((currentIndex < 0) ? phases.length : currentIndex)) return null;
+        return (
+          <div 
+            key={idx} 
+            className="fade-in"
+            style={{ 
+              fontFamily: 'var(--font-mono)', 
+              fontSize: '11px', 
+              color: idx < currentIndex ? 'var(--text-primary)' : 'var(--text-secondary)',
+              marginBottom: '8px',
+            }}
+          >
+            {phase.replace(/_/g, ' ')} {idx < currentIndex ? <span style={{ color: 'var(--accent-teal)' }}>✓</span> : <span>{Number(dots) ? dotString : '···'}</span>}
+          </div>
+        )
+      })}
     </div>
   )
 }
 
+const attemptParse = (str: string) => {
+  try { return JSON.parse(str); } catch {}
+  try { return JSON.parse(str + '}'); } catch {}
+  try { return JSON.parse(str + ']}'); } catch {}
+  try { return JSON.parse(str + '"]}]}'); } catch {}
+  try { return JSON.parse(str + '}]}]}'); } catch {}
+  try { return JSON.parse(str + '"]}]}]}'); } catch {}
+  return null;
+}
+
 export default function GraveyardApp() {
   const [query, setQuery] = useState('')
-  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'streaming' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState('')
   const [card, setCard] = useState<TaxonomyCard | null>(null)
   const [meta, setMeta] = useState<{ databaseSize: number, exaFailed: boolean, usingLocalFallback: boolean } | null>(null)
   const [isFocused, setIsFocused] = useState(false)
+  const [phase, setPhase] = useState('RETRIEVING_INDEXED_FAILURES')
 
   const handleSearch = async (e?: React.FormEvent, overridingQuery?: string) => {
     if (e) e.preventDefault()
@@ -74,6 +79,7 @@ export default function GraveyardApp() {
 
     if (overridingQuery) setQuery(overridingQuery)
     setStatus('loading')
+    setPhase('RETRIEVING_INDEXED_FAILURES')
     setErrorMessage('')
     setCard(null)
     setMeta(null)
@@ -95,17 +101,58 @@ export default function GraveyardApp() {
         throw new Error('Search failed to run properly.')
       }
 
-      const data = await res.json()
-      if (data.error) {
-        console.error("API error:", data.error)
-        setStatus('error')
-        setErrorMessage('Synthesis engine error. Output malformed or API unreachable.')
-        return
-      }
+      // Convert to SSE consumer
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) throw new Error("No readable stream available");
 
-      setCard(data.card)
-      setMeta(data.meta)
-      setStatus('success')
+      let fullJsonStr = "";
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value);
+        const events = chunk.split('\n\n').filter(Boolean);
+        
+        for (const event of events) {
+          if (event.startsWith('data: ')) {
+            const dataStr = event.slice(6);
+            if (dataStr === '[DONE]') continue;
+            
+            try {
+              const payload = JSON.parse(dataStr);
+              if (payload.type === 'meta') {
+                setMeta(prev => ({ 
+                  ...prev, 
+                  databaseSize: prev?.databaseSize || 0, // Fallback until db_count
+                  exaFailed: payload.exaFailed, 
+                  usingLocalFallback: payload.usingLocalFallback 
+                }));
+                setPhase('SYNTHESIZING_TAXONOMY');
+                setStatus('streaming');
+              } else if (payload.type === 'chunk') {
+                fullJsonStr += payload.content;
+                const partialObj = attemptParse(fullJsonStr);
+                if (partialObj) {
+                  setCard(partialObj);
+                }
+              } else if (payload.type === 'done') {
+                try {
+                  setCard(JSON.parse(fullJsonStr));
+                } catch {
+                  // Final safety net, use partial if valid fails
+                }
+                setStatus('success');
+              } else if (payload.type === 'db_count') {
+                setMeta(prev => prev ? { ...prev, databaseSize: payload.count } : null);
+              }
+            } catch (err) {
+              console.error("Failed to parse SSE event:", err);
+            }
+          }
+        }
+      }
     } catch (err: unknown) {
       console.error(err)
       setStatus('error')
@@ -126,28 +173,28 @@ export default function GraveyardApp() {
         borderBottom: '1px solid var(--border)', background: 'rgba(8, 8, 8, 0.8)',
         backdropFilter: 'blur(12px)', zIndex: 50, display: 'flex', justifyContent: 'center'
       }}>
-        <div style={{ maxWidth: '1200px', width: '100%', padding: '0 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '100%' }} className="max-md:px-5">
+        <div style={{ maxWidth: '1440px', width: '100%', padding: '0 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '100%' }} className="max-md:px-5">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <SkullIcon />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.2em', color: 'var(--text-primary)' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.2em', color: 'var(--text-primary)', fontWeight: 600 }}>
               GRAVEYARD
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div className="pulse-dot" style={{ width: '4px', height: '4px', borderRadius: '50%', background: 'var(--accent-red)' }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.15em', color: 'var(--text-primary)', opacity: 0.9 }}>
               EARLY ACCESS
             </span>
-            <span className="hidden md:inline" style={{ color: 'var(--text-muted)' }}>&nbsp;|&nbsp;</span>
-            <span className="hidden md:inline" style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)' }}>
-              {meta ? meta.databaseSize : '10'} INDEXED FAILURES
+            <span className="hidden md:inline" style={{ color: 'var(--text-secondary)' }}>&nbsp;|&nbsp;</span>
+            <span className="hidden md:inline" style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.15em', color: 'var(--text-primary)', opacity: 0.9 }}>
+              {meta?.databaseSize ? meta.databaseSize : '...'} INDEXED FAILURES
             </span>
           </div>
         </div>
       </header>
 
       {/* Constraints Container */}
-      <main style={{ maxWidth: '1200px', width: '100%', padding: '0 48px' }} className="max-md:px-5">
+      <main style={{ maxWidth: '1440px', width: '100%', padding: '0 48px' }} className="max-md:px-5">
         
         {/* Zone 3: Hero */}
         <div style={{ paddingTop: '160px', paddingBottom: status === 'idle' ? '120px' : '40px' }}>
@@ -157,12 +204,12 @@ export default function GraveyardApp() {
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(48px, 8vw, 120px)', fontWeight: 800, color: 'var(--accent-red)', lineHeight: 0.9, display: 'block', margin: 0 }} className="md:ml-[clamp(32px,4vw,80px)]">
             INTELLIGENCE
           </h1>
-          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(48px, 8vw, 120px)', fontWeight: 800, color: 'var(--text-muted)', lineHeight: 0.9, display: 'block', margin: 0 }}>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(48px, 8vw, 120px)', fontWeight: 800, color: 'var(--text-secondary)', lineHeight: 0.9, display: 'block', margin: 0 }}>
             SYSTEM
           </h1>
 
           <div style={{ marginTop: '40px' }}>
-            <p style={{ fontFamily: 'var(--font-body)', fontWeight: 300, fontSize: '15px', color: 'var(--text-secondary)', maxWidth: '480px', lineHeight: 1.6 }}>
+            <p style={{ fontFamily: 'var(--font-body)', fontWeight: 300, fontSize: '15px', color: 'var(--text-primary)', opacity: 0.85, maxWidth: '480px', lineHeight: 1.6 }}>
               Every field relearns the same lessons. Graveyard indexes failure so you don't have to repeat it.
             </p>
           </div>
@@ -184,27 +231,27 @@ export default function GraveyardApp() {
                   onChange={e => setQuery(e.target.value)}
                   onFocus={() => setIsFocused(true)}
                   onBlur={() => setIsFocused(false)}
-                  disabled={status === 'loading'}
+                  disabled={status === 'loading' || status === 'streaming'}
                   placeholder="what are you building, and what has failed like it before?"
                   style={{
                     background: 'transparent', border: 'none', outline: 'none', flexGrow: 1,
                     fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--text-primary)',
                     width: '100%'
                   }}
-                  className="placeholder-[var(--text-muted)] focus:ring-0"
+                  className="placeholder-[var(--text-secondary)] focus:ring-0"
                 />
                 
                 <button 
                   type="submit" 
-                  disabled={status === 'loading'}
+                  disabled={status === 'loading' || status === 'streaming'}
                   style={{
                     fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.15em',
                     color: 'var(--bg)', background: 'var(--accent-red)', padding: '10px 20px',
-                    border: 'none', borderRadius: 0, cursor: status === 'loading' ? 'default' : 'pointer',
+                    border: 'none', borderRadius: 0, cursor: (status === 'loading' || status === 'streaming') ? 'default' : 'pointer',
                     transition: 'background 0.2s ease'
                   }}
-                  onMouseOver={(e) => { if(status !== 'loading') e.currentTarget.style.background = '#a93226' }}
-                  onMouseOut={(e) => { if(status !== 'loading') e.currentTarget.style.background = 'var(--accent-red)' }}
+                  onMouseOver={(e) => { if(status !== 'loading' && status !== 'streaming') e.currentTarget.style.background = '#a93226' }}
+                  onMouseOut={(e) => { if(status !== 'loading' && status !== 'streaming') e.currentTarget.style.background = 'var(--accent-red)' }}
                 >
                   {status === 'loading' ? '···' : 'SEARCH'}
                 </button>
@@ -212,173 +259,102 @@ export default function GraveyardApp() {
             </form>
 
             {status === 'idle' && (
-              <div style={{ marginTop: '12px', fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-muted)' }}>
+              <div style={{ marginTop: '12px', fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-secondary)' }}>
                 Try:{' '}
-                <span style={{ cursor: 'pointer', transition: 'color 0.2s' }} onMouseOver={e=>e.currentTarget.style.color='var(--text-secondary)'} onMouseOut={e=>e.currentTarget.style.color='var(--text-muted)'} onClick={() => handleTryClick("why do AI diagnostics tools fail")}>"why do AI diagnostics tools fail"</span> {' · '}
-                <span style={{ cursor: 'pointer', transition: 'color 0.2s' }} onMouseOver={e=>e.currentTarget.style.color='var(--text-secondary)'} onMouseOut={e=>e.currentTarget.style.color='var(--text-muted)'} onClick={() => handleTryClick("why do edtech startups fail")}>"why do edtech startups fail"</span> {' · '}
-                <span style={{ cursor: 'pointer', transition: 'color 0.2s' }} onMouseOver={e=>e.currentTarget.style.color='var(--text-secondary)'} onMouseOut={e=>e.currentTarget.style.color='var(--text-muted)'} onClick={() => handleTryClick("crew resource management failures")}>"crew resource management failures"</span>
+                <span style={{ cursor: 'pointer', transition: 'color 0.2s' }} onMouseOver={e=>e.currentTarget.style.color='var(--text-primary)'} onMouseOut={e=>e.currentTarget.style.color='var(--text-secondary)'} onClick={() => handleTryClick("why do AI diagnostics tools fail")}>"why do AI diagnostics tools fail"</span> {' · '}
+                <span style={{ cursor: 'pointer', transition: 'color 0.2s' }} onMouseOver={e=>e.currentTarget.style.color='var(--text-primary)'} onMouseOut={e=>e.currentTarget.style.color='var(--text-secondary)'} onClick={() => handleTryClick("why do edtech startups fail")}>"why do edtech startups fail"</span> {' · '}
+                <span style={{ cursor: 'pointer', transition: 'color 0.2s' }} onMouseOver={e=>e.currentTarget.style.color='var(--text-primary)'} onMouseOut={e=>e.currentTarget.style.color='var(--text-secondary)'} onClick={() => handleTryClick("crew resource management failures")}>"crew resource management failures"</span>
               </div>
             )}
           </div>
         </div>
 
         {/* Loading State */}
-        {status === 'loading' && <LoadingSequence />}
+        {status === 'loading' && <LoadingSequence currentPhase={phase} />}
 
         {/* Error State */}
         {status === 'error' && (
-          <div style={{ marginTop: '32px', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-secondary)' }}>
+          <div style={{ marginTop: '32px', fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-primary)' }}>
             <span style={{ color: 'var(--accent-red)' }}>[ERROR]</span> {errorMessage}
           </div>
         )}
 
         {/* Taxonomy Card */}
-        {status === 'success' && card && (
+        {(status === 'streaming' || status === 'success') && card && (
           <div className="fade-in" style={{ marginTop: '64px', borderTop: '1px solid var(--border-bright)' }}>
+            
+            {status === 'streaming' && (
+               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginTop: '16px', background: 'rgba(212,160,23,0.1)', border: '1px solid rgba(212,160,23,0.3)', padding: '6px 12px' }}>
+                 <div className="pulse-dot" style={{ width: '4px', height: '4px', borderRadius: '50%', background: 'var(--accent-amber)' }}></div>
+                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--accent-amber)'}}>SYNTHESIZING...</span>
+               </div>
+            )}
+
             {/* Meta Alerts (Live Exa failure info optionally placed before card if needed) */}
             {(meta?.exaFailed || meta?.usingLocalFallback) && (
               <div style={{ padding: '16px 0', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent-amber)' }}>
-                {meta?.exaFailed ? '[NOTICE] Live source retrieval unavailable — showing indexed failures only.' : ''}
-                {meta?.usingLocalFallback && !meta?.exaFailed ? '[NOTICE] Running on local index — live database unavailable.' : ''}
+                {meta?.exaFailed ? '[NOTICE] Live source retrieval unavailable — showing indexed failures only. ' : ''}
+                {meta?.usingLocalFallback && !meta?.exaFailed ? '[NOTICE] Running on local index — live database unavailable. ' : ''}
               </div>
             )}
 
             {/* Card Header */}
             <div style={{ padding: '32px 0 24px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.2em', color: 'var(--accent-red)' }}>FAILURE TAXONOMY CARD</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.2em', color: 'var(--accent-red)' }}>FAILURE TAXONOMY CARD</span>
                 <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-muted)' }}>{new Date().toISOString().split('T')[0]}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-muted)' }}>{meta?.databaseSize || 0} FAILURES INDEXED</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-secondary)' }}>{new Date().toISOString().split('T')[0]}</span>
                 </div>
               </div>
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '28px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                {card.query}
+                {card.query || query}
               </h2>
             </div>
 
             {/* Mechanisms */}
-            <section style={{ marginTop: '48px' }}>
-              <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: '24px' }}>
-                01 — FAILURE MECHANISMS
-              </h3>
-              
-              <div>
-                {card.mechanisms?.map((mech, i) => (
-                  <div key={i} className="slide-left mx-max-md-grid-override" style={{ 
-                    borderBottom: '1px solid var(--border)', padding: '20px 0',
-                    display: 'grid', gridTemplateColumns: '200px 80px 1fr', gap: '32px', alignItems: 'start',
-                    animationDelay: `${i * 80 + 100}ms`
-                  }}>
-                    <h4 style={{ fontFamily: 'var(--font-display)', fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                      {mech.name}
-                      <span className="md:hidden ml-2 px-2 py-0.5" style={{
-                        display: 'inline-block',
-                        fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', borderRadius: '2px',
-                        color: mech.frequency.toUpperCase() === 'HIGH' ? 'var(--accent-red)' : 
-                               mech.frequency.toUpperCase() === 'MEDIUM' ? 'var(--accent-amber)' : 'var(--text-secondary)',
-                        border: `1px solid ${mech.frequency.toUpperCase() === 'HIGH' ? 'var(--accent-red-dim)' : 
-                                         mech.frequency.toUpperCase() === 'MEDIUM' ? 'rgba(212,160,23,0.3)' : 'var(--border)'}`,
-                        background: 'transparent'
-                      }}>
-                        {mech.frequency.toUpperCase()}
-                      </span>
-                    </h4>
-                    
-                    <span className="hidden md:inline-block px-2 py-0.5 text-center" style={{
-                      fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', borderRadius: '2px',
-                      color: mech.frequency.toUpperCase() === 'HIGH' ? 'var(--accent-red)' : 
-                             mech.frequency.toUpperCase() === 'MEDIUM' ? 'var(--accent-amber)' : 'var(--text-secondary)',
-                      border: `1px solid ${mech.frequency.toUpperCase() === 'HIGH' ? 'var(--accent-red-dim)' : 
-                                       mech.frequency.toUpperCase() === 'MEDIUM' ? 'rgba(212,160,23,0.3)' : 'var(--border)'}`,
-                      background: 'transparent'
-                    }}>
-                      {mech.frequency.toUpperCase()}
-                    </span>
-
-                    <div>
-                      <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
-                        {mech.description}
-                      </p>
-                      <div style={{ marginTop: '12px' }}>
-                        {mech.warning_signs?.map((ws, j) => (
-                          <span key={j} style={{
-                            border: '1px solid var(--border-bright)', fontFamily: 'var(--font-mono)', fontSize: '9px', 
-                            color: 'var(--text-muted)', padding: '3px 8px', margin: '4px 4px 0 0', display: 'inline-block'
-                          }}>
-                            {ws}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            {/* Broken Assumptions */}
-            <section style={{ marginTop: '64px' }}>
-              <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: '24px', animationDelay: '200ms' }}>
-                02 — BROKEN ASSUMPTIONS
-              </h3>
-              
-              <div>
-                {card.broken_assumptions?.map((ba, i) => (
-                  <div key={i} className="slide-up" style={{ 
-                    padding: '24px 0 24px 24px', borderBottom: '1px solid var(--border)', borderLeft: '2px solid var(--accent-red-dim)',
-                    animationDelay: `${i * 80 + 300}ms`
-                  }}>
-                    <p style={{ fontFamily: 'var(--font-display)', fontSize: '18px', fontWeight: 600, fontStyle: 'italic', color: 'var(--text-primary)', marginBottom: '12px', lineHeight: 1.4 }}>
-                      "{ba.assumption}"
-                    </p>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-secondary)' }}>
-                        WHO HELD IT — <span style={{ color: 'var(--text-muted)' }}>{ba.who_held_it}</span>
-                      </span>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-secondary)' }}>
-                        EXPOSED BY — <span style={{ color: 'var(--text-muted)' }}>{ba.what_revealed_it}</span>
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            {/* Cross-Domain Transfer */}
-            {card.cross_domain_insights?.length > 0 && (
-              <section style={{ marginTop: '64px' }}>
-                <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: '24px', animationDelay: '300ms' }}>
-                  03 — CROSS-DOMAIN TRANSFER
+            {card.mechanisms && card.mechanisms.length > 0 && (
+              <section style={{ marginTop: '48px' }}>
+                <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.15em', color: 'var(--text-primary)', marginBottom: '24px' }}>
+                  01 — FAILURE MECHANISMS
                 </h3>
                 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {card.cross_domain_insights.map((cdi, i) => (
-                    <div key={i} className="slide-up" style={{ 
-                      background: 'var(--bg-surface)', border: '1px solid var(--border)', borderLeft: '2px solid var(--accent-teal)',
-                      padding: '28px', animationDelay: `${i * 80 + 400}ms`
+                <div>
+                  {card.mechanisms?.map((mech, i) => (
+                    <div key={i} className="slide-left" style={{ 
+                      borderBottom: '1px solid var(--border)', padding: '28px 0',
+                      display: 'flex', flexDirection: 'column', gap: 0,
+                      animationDelay: `${i * 80 + 100}ms`
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--accent-teal)', textTransform: 'uppercase' }}>{cdi.source_domain}</span>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-secondary)' }}>——→</span>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>QUERY DOMAIN</span>
-                      </div>
-                      
-                      <h5 style={{ fontFamily: 'var(--font-display)', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 8px 0' }}>
-                        {cdi.source_failure}
-                      </h5>
-                      <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', fontStyle: 'italic', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
-                        {cdi.pattern_match}
-                      </p>
-                      
-                      <div style={{ 
-                        marginTop: '16px', padding: '16px', background: 'rgba(26, 138, 122, 0.06)', border: '1px solid rgba(26, 138, 122, 0.15)' 
-                      }}>
-                        <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '8px', letterSpacing: '0.15em', color: 'var(--accent-teal)', marginBottom: '8px' }}>
-                          CONCRETE TRANSLATION
+                      {/* Sub-row 1 */}
+                      <div className="mobile-mech-header" style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '14px' }}>
+                        <h4 style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)', margin: 0 }}>
+                          {mech.name}
+                        </h4>
+                        <span style={{
+                          fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.12em',
+                          color: mech.frequency === 'HIGH' ? 'var(--accent-red)' : 
+                                 mech.frequency === 'MEDIUM' ? 'var(--accent-amber)' : 'var(--text-secondary)',
+                          border: '1px solid currentColor', padding: '4px 10px', borderRadius: 0
+                        }}>
+                          {mech.frequency?.toUpperCase() || "UNKNOWN"}
                         </span>
-                        <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-primary)', lineHeight: 1.6, margin: 0 }}>
-                          {cdi.concrete_translation}
+                      </div>
+
+                      {/* Sub-row 2 */}
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <p style={{ fontFamily: 'var(--font-body)', fontSize: '15px', fontWeight: 400, color: 'var(--text-primary)', opacity: 0.85, lineHeight: 1.65, maxWidth: '840px', margin: '0 0 14px 0' }}>
+                          {mech.description}
                         </p>
+                        <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+                          {mech.warning_signs?.map((ws, j) => (
+                            <span key={j} style={{
+                              border: '1px solid var(--border-bright)', fontFamily: 'var(--font-mono)', fontSize: '10px', 
+                              color: 'var(--text-primary)', opacity: 0.85, padding: '4px 12px', margin: '0 6px 6px 0', display: 'inline-block', borderRadius: 0
+                            }}>
+                              {ws}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -386,124 +362,213 @@ export default function GraveyardApp() {
               </section>
             )}
 
-            {/* Synthesis Summary Boxes */}
-            <section style={{ marginTop: '64px' }}>
-              <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: '24px', animationDelay: '400ms' }}>
-                04 — SYNTHESIS
-              </h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Box 1 */}
-                <div className="slide-up" style={{ 
-                  border: '1px solid var(--accent-red-dim)', background: 'var(--accent-red-glow)', padding: '28px',
-                  animationDelay: '450ms'
-                }}>
-                  <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', color: 'var(--accent-red)', marginBottom: '16px' }}>
-                    THE UNCOMFORTABLE TRUTH
-                  </span>
-                  <p style={{ fontFamily: 'var(--font-body)', fontSize: '15px', fontWeight: 400, color: 'var(--text-primary)', lineHeight: 1.7, margin: 0 }}>
-                    {card.uncomfortable_truth}
-                  </p>
-                </div>
-
-                {/* Box 2 */}
-                <div className="slide-up" style={{ 
-                  border: '1px solid rgba(212, 160, 23, 0.2)', background: 'rgba(212, 160, 23, 0.04)', padding: '28px',
-                  animationDelay: '500ms'
-                }}>
-                  <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', color: 'var(--accent-amber)', marginBottom: '16px' }}>
-                    IF I WERE STARTING TODAY
-                  </span>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {card.if_starting_today?.map((action, i) => (
-                      <div key={i} style={{ display: 'flex', gap: '12px', alignItems: 'start' }}>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--accent-amber)', marginTop: '-2px' }}>→</span>
-                        <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-primary)', margin: 0, lineHeight: 1.6 }}>
-                          {action}
-                        </p>
+            {/* Broken Assumptions */}
+            {card.broken_assumptions && card.broken_assumptions.length > 0 && (
+              <section style={{ marginTop: '64px' }}>
+                <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.15em', color: 'var(--text-primary)', marginBottom: '24px' }}>
+                  02 — BROKEN ASSUMPTIONS
+                </h3>
+                
+                <div>
+                  {card.broken_assumptions?.map((ba, i) => (
+                    <div key={i} className="slide-up" style={{ 
+                      padding: '24px 0 24px 24px', borderBottom: '1px solid var(--border)', borderLeft: '2px solid var(--accent-red-dim)'
+                    }}>
+                      <p style={{ fontFamily: 'var(--font-display)', fontSize: '22px', fontWeight: 600, fontStyle: 'italic', color: 'var(--text-primary)', marginBottom: '12px', lineHeight: 1.4 }}>
+                        "{ba.assumption}"
+                      </p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-primary)' }}>
+                          WHO HELD IT — <span style={{ color: 'var(--text-secondary)' }}>{ba.who_held_it}</span>
+                        </span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-primary)' }}>
+                          EXPOSED BY — <span style={{ color: 'var(--text-secondary)' }}>{ba.what_revealed_it}</span>
+                        </span>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            </section>
+              </section>
+            )}
+
+            {/* Cross-Domain Transfer */}
+            {card.cross_domain_insights && card.cross_domain_insights.length > 0 && (
+              <section style={{ marginTop: '64px' }}>
+                <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.15em', color: 'var(--text-primary)', marginBottom: '24px' }}>
+                  03 — CROSS-DOMAIN TRANSFER
+                </h3>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {card.cross_domain_insights.map((cdi, i) => (
+                    <div key={i} className="slide-up" style={{ 
+                      background: 'var(--bg-surface)', border: '1px solid var(--border)', borderLeft: '2px solid var(--accent-teal)',
+                      padding: '28px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--accent-teal)', textTransform: 'uppercase', fontWeight: 600 }}>{cdi.source_domain}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-primary)' }}>——→</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-primary)', textTransform: 'uppercase', fontWeight: 600 }}>QUERY DOMAIN</span>
+                      </div>
+                      
+                      <h5 style={{ fontFamily: 'var(--font-display)', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 8px 0' }}>
+                        {cdi.source_failure}
+                      </h5>
+                      <p style={{ fontFamily: 'var(--font-body)', fontSize: '15px', fontStyle: 'italic', color: 'var(--text-primary)', opacity: 0.85, lineHeight: 1.5, margin: 0 }}>
+                        {cdi.pattern_match}
+                      </p>
+                      
+                      {cdi.concrete_translation && (
+                        <div style={{ 
+                          marginTop: '16px', padding: '16px', background: 'rgba(26, 138, 122, 0.06)', border: '1px solid rgba(26, 138, 122, 0.15)' 
+                        }}>
+                          <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '9px', fontWeight: 600, letterSpacing: '0.15em', color: 'var(--accent-teal)', marginBottom: '8px' }}>
+                            CONCRETE TRANSLATION
+                          </span>
+                          <p style={{ fontFamily: 'var(--font-body)', fontSize: '15px', color: 'var(--text-primary)', opacity: 0.9, lineHeight: 1.6, margin: 0 }}>
+                            {cdi.concrete_translation}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Synthesis Summary Boxes */}
+            {(card.uncomfortable_truth || card.if_starting_today) && (
+              <section style={{ marginTop: '64px' }}>
+                <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.15em', color: 'var(--text-primary)', marginBottom: '24px' }}>
+                  04 — SYNTHESIS
+                </h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Box 1 */}
+                  {card.uncomfortable_truth && (
+                    <div className="slide-up" style={{ 
+                      border: '1px solid var(--accent-red-dim)', background: 'var(--accent-red-glow)', padding: '28px'
+                    }}>
+                      <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 600, letterSpacing: '0.1em', color: 'var(--accent-red)', marginBottom: '16px' }}>
+                        THE UNCOMFORTABLE TRUTH
+                      </span>
+                      <p style={{ fontFamily: 'var(--font-body)', fontSize: '16px', fontWeight: 400, color: 'var(--text-primary)', lineHeight: 1.75, margin: 0 }}>
+                        {card.uncomfortable_truth}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Box 2 */}
+                  {card.if_starting_today && card.if_starting_today.length > 0 && (
+                    <div className="slide-up" style={{ 
+                      border: '1px solid rgba(212, 160, 23, 0.2)', background: 'rgba(212, 160, 23, 0.04)', padding: '28px'
+                    }}>
+                      <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 600, letterSpacing: '0.1em', color: 'var(--accent-amber)', marginBottom: '16px' }}>
+                        IF I WERE STARTING TODAY
+                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {card.if_starting_today?.map((action, i) => (
+                          <div key={i} style={{ display: 'flex', gap: '12px', alignItems: 'start' }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--accent-amber)', marginTop: '-2px' }}>→</span>
+                            <p style={{ fontFamily: 'var(--font-body)', fontSize: '16px', color: 'var(--text-primary)', margin: 0, lineHeight: 1.75 }}>
+                              {action}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
 
             {/* Source Failures */}
-            <section style={{ marginTop: '64px' }}>
-              <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: '24px', animationDelay: '500ms' }}>
-                05 — INDEXED SOURCES
-              </h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-12">
-                {/* Direct Matches */}
-                <div className="slide-up" style={{ animationDelay: '550ms' }}>
-                  <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                    DIRECT MATCHES
-                  </span>
-                  <div>
-                    {card.direct_matches?.map((m, i) => (
-                      <div key={i} className="match-row" style={{ borderBottom: '1px solid var(--border)', padding: '12px 0' }}
-                           onMouseOver={e => e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'}
-                           onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '8px' }}>
-                          <span style={{ color: 'var(--accent-amber)', fontSize: '14px', lineHeight: 1 }}>●</span>
-                          <span style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: 500 }}>{m.name}</span>
-                          <span style={{ flexGrow: 1 }} />
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-secondary)' }}>{m.domain}</span>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)' }}>{m.year}</span>
+            {(card.direct_matches || card.cross_domain_matches) && (
+              <section style={{ marginTop: '64px' }}>
+                <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.15em', color: 'var(--text-primary)', marginBottom: '24px' }}>
+                  05 — INDEXED SOURCES
+                </h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-12">
+                  {/* Direct Matches */}
+                  <div className="slide-up">
+                    <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.15em', color: 'var(--text-primary)', opacity: 0.9, marginBottom: '16px' }}>
+                      DIRECT MATCHES
+                    </span>
+                    <div>
+                      {card.direct_matches?.map((m, i) => (
+                        <div key={i} className="match-row" style={{ borderBottom: '1px solid var(--border)', padding: '12px 0' }}
+                             onMouseOver={e => e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'}
+                             onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                            <span style={{ color: 'var(--accent-amber)', fontSize: '14px', lineHeight: 1 }}>●</span>
+                            <span style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>{m.name}</span>
+                            {(m as any).source_url && (
+                               <a href={(m as any).source_url} target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--accent-teal)', textDecoration: 'none', borderBottom: '1px solid var(--accent-teal)', display: 'inline-block', marginLeft: '12px', transition: 'opacity 0.2s ease' }} onMouseOver={e => e.currentTarget.style.opacity = '0.7'} onMouseOut={e => e.currentTarget.style.opacity = '1'}>
+                                 ↗ SOURCE
+                               </a>
+                            )}
+                            <span style={{ flexGrow: 1 }} />
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-primary)' }}>{m.domain}</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-secondary)' }}>{m.year}</span>
+                          </div>
+                          <p style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-primary)', opacity: 0.85, margin: 0, paddingLeft: '22px', lineHeight: 1.5 }}>
+                            {m.mechanism_overlap}
+                          </p>
                         </div>
-                        <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--text-secondary)', margin: 0, paddingLeft: '22px', lineHeight: 1.5 }}>
-                          {m.mechanism_overlap}
-                        </p>
-                      </div>
-                    ))}
-                    {(!card.direct_matches || card.direct_matches.length === 0) && (
-                      <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', fontStyle: 'italic', color: 'var(--text-muted)' }}>No high confidence direct matches in the index.</p>
-                    )}
+                      ))}
+                      {(!card.direct_matches || card.direct_matches.length === 0) && (
+                        <p style={{ fontFamily: 'var(--font-body)', fontSize: '13px', fontStyle: 'italic', color: 'var(--text-secondary)' }}>No high confidence direct matches in the index.</p>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                {/* Cross-Domain Matches */}
-                <div className="slide-up" style={{ animationDelay: '600ms' }}>
-                  <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                    CROSS-DOMAIN MATCHES
-                  </span>
-                  <div>
-                    {card.cross_domain_matches?.map((m, i) => (
-                      <div key={i} className="match-row" style={{ borderBottom: '1px solid var(--border)', padding: '12px 0' }}
-                           onMouseOver={e => e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'}
-                           onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '8px' }}>
-                          <span style={{ color: 'var(--accent-teal)', fontSize: '14px', lineHeight: 1 }}>●</span>
-                          <span style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: 500 }}>{m.name}</span>
-                          <span style={{ flexGrow: 1 }} />
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-secondary)' }}>{m.domain}</span>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)' }}>{m.year}</span>
+                  {/* Cross-Domain Matches */}
+                  <div className="slide-up">
+                    <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.15em', color: 'var(--text-primary)', opacity: 0.9, marginBottom: '16px' }}>
+                      CROSS-DOMAIN MATCHES
+                    </span>
+                    <div>
+                      {card.cross_domain_matches?.map((m, i) => (
+                        <div key={i} className="match-row" style={{ borderBottom: '1px solid var(--border)', padding: '12px 0' }}
+                             onMouseOver={e => e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'}
+                             onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                            <span style={{ color: 'var(--accent-teal)', fontSize: '14px', lineHeight: 1 }}>●</span>
+                            <span style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>{m.name}</span>
+                            {(m as any).source_url && (
+                               <a href={(m as any).source_url} target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--accent-teal)', textDecoration: 'none', borderBottom: '1px solid var(--accent-teal)', display: 'inline-block', marginLeft: '12px', transition: 'opacity 0.2s ease' }} onMouseOver={e => e.currentTarget.style.opacity = '0.7'} onMouseOut={e => e.currentTarget.style.opacity = '1'}>
+                                 ↗ SOURCE
+                               </a>
+                            )}
+                            <span style={{ flexGrow: 1 }} />
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-primary)' }}>{m.domain}</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-secondary)' }}>{m.year}</span>
+                          </div>
+                          <p style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-primary)', opacity: 0.85, margin: 0, paddingLeft: '22px', lineHeight: 1.5 }}>
+                            {m.structural_similarity}
+                          </p>
                         </div>
-                        <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--text-secondary)', margin: 0, paddingLeft: '22px', lineHeight: 1.5 }}>
-                          {m.structural_similarity}
-                        </p>
-                      </div>
-                    ))}
-                    {(!card.cross_domain_matches || card.cross_domain_matches.length === 0) && (
-                      <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', fontStyle: 'italic', color: 'var(--text-muted)' }}>No diverse structural analogs retrieved.</p>
-                    )}
+                      ))}
+                      {(!card.cross_domain_matches || card.cross_domain_matches.length === 0) && (
+                        <p style={{ fontFamily: 'var(--font-body)', fontSize: '13px', fontStyle: 'italic', color: 'var(--text-secondary)' }}>No diverse structural analogs retrieved.</p>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </section>
+              </section>
+            )}
           </div>
         )}
       </main>
 
-      {/* Global Style Override for specific dynamic responsive elements if needed */}
       <style dangerouslySetInnerHTML={{__html: `
         @media (max-width: 768px) {
-          .mx-max-md-grid-override {
-            grid-template-columns: 1fr !important;
-            gap: 16px !important;
+          .mobile-mech-header {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 8px !important;
           }
         }
         .match-row {
