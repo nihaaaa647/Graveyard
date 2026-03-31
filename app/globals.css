@@ -3,25 +3,86 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #080808;
+  --bg-surface: #0f0f0f;
+  --bg-elevated: #161616;
+  --border: #1f1f1f;
+  --border-bright: #2e2e2e;
+  --text-primary: #f0ede8;
+  --text-secondary: #7a776f;
+  --text-muted: #3d3b37;
+  --accent-red: #c0392b;
+  --accent-red-dim: #7a1f17;
+  --accent-amber: #d4a017;
+  --accent-teal: #1a8a7a;
+  --accent-red-glow: rgba(192, 57, 43, 0.08);
+  --font-display: 'Syne', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --font-body: 'DM Sans', sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+::selection {
+  background: var(--accent-red);
+  color: var(--text-primary);
+}
+
+::-webkit-scrollbar { width: 2px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border-bright); }
+
+@keyframes pulse-red {
+  0% { opacity: 1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-16px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideInUp {
+  from { transform: translateY(8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.pulse-dot {
+  animation: pulse-red 2s infinite;
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+.slide-up {
+  opacity: 0;
+  animation: slideInUp 0.5s ease forwards;
+}
+
+.slide-left {
+  opacity: 0;
+  animation: slideInLeft 0.5s ease forwards;
+}
+
+.caret-blink {
+  animation: blink 1s infinite;
 }

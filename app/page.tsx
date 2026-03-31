@@ -1,8 +1,63 @@
 'use client'
 
-import { useState } from 'react'
-import { Search, Skull, AlertCircle, RefreshCw } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { TaxonomyCard } from '@/lib/failures'
+
+// Minimal inline SVG Skull
+const SkullIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M9 12h.01M15 12h.01M12 2C6.477 2 2 6.477 2 12c0 2.4.9 4.6 2.4 6.2L6 22h12l1.6-3.8C21.1 16.6 22 14.4 22 12 22 6.477 17.523 2 12 2z"/>
+    <path d="M8 22v-4M16 22v-4M12 22v-4"/>
+  </svg>
+)
+
+const LoadingSequence = () => {
+  const [step, setStep] = useState(0)
+  const [dots, setDots] = useState(1)
+
+  useEffect(() => {
+    const stepInterval = setInterval(() => {
+      setStep(s => (s < 3 ? s + 1 : 3))
+    }, 600)
+    return () => clearInterval(stepInterval)
+  }, [])
+
+  useEffect(() => {
+    const dotsInterval = setInterval(() => {
+      setDots(d => (d % 3) + 1)
+    }, 300)
+    return () => clearInterval(dotsInterval)
+  }, [])
+
+  const lines = [
+    'RETRIEVING INDEXED FAILURES',
+    'QUERYING LIVE SOURCES',
+    'ABSTRACTING MECHANISMS',
+    'SYNTHESIZING TAXONOMY'
+  ]
+
+  const dotString = Array(dots).fill('·').join('') + Array(3 - dots).fill('\u00A0').join('')
+
+  return (
+    <div style={{ marginTop: '32px' }}>
+      {lines.map((text, idx) => (
+        <div 
+          key={idx} 
+          className="fade-in"
+          style={{ 
+            fontFamily: 'var(--font-mono)', 
+            fontSize: '11px', 
+            color: 'var(--text-secondary)',
+            marginBottom: '8px',
+            visibility: step >= idx ? 'visible' : 'hidden'
+          }}
+        >
+          {text} {step > idx ? <span style={{ color: 'var(--accent-teal)' }}>✓</span> : <span>{Number(dots) ? dotString : '···'}</span>}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default function GraveyardApp() {
   const [query, setQuery] = useState('')
@@ -10,11 +65,14 @@ export default function GraveyardApp() {
   const [errorMessage, setErrorMessage] = useState('')
   const [card, setCard] = useState<TaxonomyCard | null>(null)
   const [meta, setMeta] = useState<{ databaseSize: number, exaFailed: boolean, usingLocalFallback: boolean } | null>(null)
+  const [isFocused, setIsFocused] = useState(false)
 
-  const handleSearch = async (e?: React.FormEvent) => {
+  const handleSearch = async (e?: React.FormEvent, overridingQuery?: string) => {
     if (e) e.preventDefault()
-    if (!query.trim()) return
+    const finalQuery = overridingQuery || query
+    if (!finalQuery.trim()) return
 
+    if (overridingQuery) setQuery(overridingQuery)
     setStatus('loading')
     setErrorMessage('')
     setCard(null)
@@ -24,7 +82,7 @@ export default function GraveyardApp() {
       const res = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
+        body: JSON.stringify({ query: finalQuery })
       })
 
       if (res.status === 429) {
@@ -55,250 +113,403 @@ export default function GraveyardApp() {
     }
   }
 
+  const handleTryClick = (example: string) => {
+    handleSearch(undefined, example)
+  }
+
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-gray-200 selection:bg-red-900/30 font-sans pb-24">
-      {/* Header */}
-      <header className="flex items-center justify-between p-6 max-w-5xl mx-auto w-full">
-        <div className="flex items-center gap-2 text-white">
-          <Skull size={18} className="text-[#dc2626]" />
-          <span className="font-mono tracking-widest text-sm font-bold">GRAVEYARD</span>
-        </div>
-        <div className="text-xs text-[#dc2626]/70 max-w-xs text-right hidden sm:block">
-          Early Access — Database organically growing. Full ingestion pipeline active.
+    <div style={{ paddingBottom: '96px', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      
+      {/* Zone 1: Header */}
+      <header style={{
+        position: 'fixed', top: 0, left: 0, right: 0, height: '56px', width: '100%',
+        borderBottom: '1px solid var(--border)', background: 'rgba(8, 8, 8, 0.8)',
+        backdropFilter: 'blur(12px)', zIndex: 50, display: 'flex', justifyContent: 'center'
+      }}>
+        <div style={{ maxWidth: '1200px', width: '100%', padding: '0 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '100%' }} className="max-md:px-5">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <SkullIcon />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.2em', color: 'var(--text-primary)' }}>
+              GRAVEYARD
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="pulse-dot" style={{ width: '4px', height: '4px', borderRadius: '50%', background: 'var(--accent-red)' }} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)' }}>
+              EARLY ACCESS
+            </span>
+            <span className="hidden md:inline" style={{ color: 'var(--text-muted)' }}>&nbsp;|&nbsp;</span>
+            <span className="hidden md:inline" style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)' }}>
+              {meta ? meta.databaseSize : '10'} INDEXED FAILURES
+            </span>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto w-full px-6 pt-16">
-        {/* Hero Section */}
-        <div className="text-center space-y-6 mb-16">
-          <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight text-white">
-            Every field relearns the same lessons.
+      {/* Constraints Container */}
+      <main style={{ maxWidth: '1200px', width: '100%', padding: '0 48px' }} className="max-md:px-5">
+        
+        {/* Zone 3: Hero */}
+        <div style={{ paddingTop: '160px', paddingBottom: status === 'idle' ? '120px' : '40px' }}>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(48px, 8vw, 120px)', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 0.9, display: 'block', margin: 0 }}>
+            FAILURE
           </h1>
-          <p className="text-lg md:text-xl text-gray-400 max-w-2xl mx-auto">
-            Graveyard indexes failure so you don't have to repeat it.
-          </p>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(48px, 8vw, 120px)', fontWeight: 800, color: 'var(--accent-red)', lineHeight: 0.9, display: 'block', margin: 0 }} className="md:ml-[clamp(32px,4vw,80px)]">
+            INTELLIGENCE
+          </h1>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(48px, 8vw, 120px)', fontWeight: 800, color: 'var(--text-muted)', lineHeight: 0.9, display: 'block', margin: 0 }}>
+            SYSTEM
+          </h1>
 
-          <form onSubmit={handleSearch} className="mt-12 relative max-w-3xl mx-auto">
-            <div className="relative group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-[#dc2626] transition-colors" size={20} />
-              <input
-                type="text"
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                placeholder="What are you building, and what has failed like it before?"
-                className="w-full bg-[#111] border-0 border-b-2 border-gray-800 text-white placeholder-gray-600 px-12 py-5 text-lg focus:ring-0 focus:outline-none focus:border-[#dc2626] transition-colors rounded-t-xl"
-                disabled={status === 'loading'}
-              />
-              <button 
-                type="submit" 
-                disabled={status === 'loading'}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-mono text-gray-500 hover:text-white transition-colors disabled:opacity-50"
-              >
-                ENTER
-              </button>
-            </div>
-          </form>
+          <div style={{ marginTop: '40px' }}>
+            <p style={{ fontFamily: 'var(--font-body)', fontWeight: 300, fontSize: '15px', color: 'var(--text-secondary)', maxWidth: '480px', lineHeight: 1.6 }}>
+              Every field relearns the same lessons. Graveyard indexes failure so you don't have to repeat it.
+            </p>
+          </div>
+
+          <div style={{ marginTop: '48px' }}>
+            <form onSubmit={e => handleSearch(e)}>
+              <div style={{
+                border: `1px solid ${isFocused ? 'var(--accent-red)' : 'var(--border-bright)'}`,
+                background: 'var(--bg-surface)',
+                height: '64px', display: 'flex', alignItems: 'center', padding: '0 24px', gap: '16px',
+                transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+                boxShadow: isFocused ? '0 0 0 1px var(--accent-red-glow)' : 'none'
+              }}>
+                <span className={isFocused ? "caret-blink" : ""} style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--accent-red)' }}>{'>'}</span>
+                
+                <input
+                  type="text"
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  onFocus={() => setIsFocused(true)}
+                  onBlur={() => setIsFocused(false)}
+                  disabled={status === 'loading'}
+                  placeholder="what are you building, and what has failed like it before?"
+                  style={{
+                    background: 'transparent', border: 'none', outline: 'none', flexGrow: 1,
+                    fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--text-primary)',
+                    width: '100%'
+                  }}
+                  className="placeholder-[var(--text-muted)] focus:ring-0"
+                />
+                
+                <button 
+                  type="submit" 
+                  disabled={status === 'loading'}
+                  style={{
+                    fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.15em',
+                    color: 'var(--bg)', background: 'var(--accent-red)', padding: '10px 20px',
+                    border: 'none', borderRadius: 0, cursor: status === 'loading' ? 'default' : 'pointer',
+                    transition: 'background 0.2s ease'
+                  }}
+                  onMouseOver={(e) => { if(status !== 'loading') e.currentTarget.style.background = '#a93226' }}
+                  onMouseOut={(e) => { if(status !== 'loading') e.currentTarget.style.background = 'var(--accent-red)' }}
+                >
+                  {status === 'loading' ? '···' : 'SEARCH'}
+                </button>
+              </div>
+            </form>
+
+            {status === 'idle' && (
+              <div style={{ marginTop: '12px', fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-muted)' }}>
+                Try:{' '}
+                <span style={{ cursor: 'pointer', transition: 'color 0.2s' }} onMouseOver={e=>e.currentTarget.style.color='var(--text-secondary)'} onMouseOut={e=>e.currentTarget.style.color='var(--text-muted)'} onClick={() => handleTryClick("why do AI diagnostics tools fail")}>"why do AI diagnostics tools fail"</span> {' · '}
+                <span style={{ cursor: 'pointer', transition: 'color 0.2s' }} onMouseOver={e=>e.currentTarget.style.color='var(--text-secondary)'} onMouseOut={e=>e.currentTarget.style.color='var(--text-muted)'} onClick={() => handleTryClick("why do edtech startups fail")}>"why do edtech startups fail"</span> {' · '}
+                <span style={{ cursor: 'pointer', transition: 'color 0.2s' }} onMouseOver={e=>e.currentTarget.style.color='var(--text-secondary)'} onMouseOut={e=>e.currentTarget.style.color='var(--text-muted)'} onClick={() => handleTryClick("crew resource management failures")}>"crew resource management failures"</span>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Status States */}
-        {status === 'loading' && (
-          <div className="flex flex-col items-center justify-center py-24 space-y-4 animate-pulse">
-            <div className="w-12 h-12 border-4 border-[#dc2626]/20 border-t-[#dc2626] rounded-full animate-spin" />
-            <p className="font-mono text-sm text-gray-500">Searching indexed failures and live sources...</p>
-          </div>
-        )}
+        {/* Loading State */}
+        {status === 'loading' && <LoadingSequence />}
 
+        {/* Error State */}
         {status === 'error' && (
-          <div className="py-12 flex flex-col items-center text-center space-y-4">
-            <AlertCircle className="text-[#dc2626]" size={48} />
-            <p className="text-gray-300 max-w-md">{errorMessage}</p>
-            <button 
-              onClick={() => handleSearch()}
-              className="flex items-center gap-2 px-6 py-2 bg-[#dc2626]/10 text-[#dc2626] border border-[#dc2626]/30 rounded hover:bg-[#dc2626]/20 transition-colors font-mono text-sm"
-            >
-              <RefreshCw size={14} /> Retry
-            </button>
+          <div style={{ marginTop: '32px', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-secondary)' }}>
+            <span style={{ color: 'var(--accent-red)' }}>[ERROR]</span> {errorMessage}
           </div>
         )}
 
-        {/* Results Card */}
+        {/* Taxonomy Card */}
         {status === 'success' && card && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out space-y-10">
-            {/* Meta Warnings */}
-            <div className="flex flex-col gap-2 mb-4">
-              {meta?.exaFailed && (
-                <div className="text-xs font-mono text-gray-500 flex items-center gap-2">
-                  <AlertCircle size={12} className="text-[#f59e0b]" /> Live source retrieval unavailable — showing indexed failures only.
+          <div className="fade-in" style={{ marginTop: '64px', borderTop: '1px solid var(--border-bright)' }}>
+            {/* Meta Alerts (Live Exa failure info optionally placed before card if needed) */}
+            {(meta?.exaFailed || meta?.usingLocalFallback) && (
+              <div style={{ padding: '16px 0', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent-amber)' }}>
+                {meta?.exaFailed ? '[NOTICE] Live source retrieval unavailable — showing indexed failures only.' : ''}
+                {meta?.usingLocalFallback && !meta?.exaFailed ? '[NOTICE] Running on local index — live database unavailable.' : ''}
+              </div>
+            )}
+
+            {/* Card Header */}
+            <div style={{ padding: '32px 0 24px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.2em', color: 'var(--accent-red)' }}>FAILURE TAXONOMY CARD</span>
+                <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-muted)' }}>{new Date().toISOString().split('T')[0]}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-muted)' }}>{meta?.databaseSize || 0} FAILURES INDEXED</span>
                 </div>
-              )}
-              {meta?.usingLocalFallback && !meta?.exaFailed && (
-                <div className="text-xs font-mono text-gray-500 flex items-center gap-2">
-                  <AlertCircle size={12} className="text-[#f59e0b]" /> Running on local index — live database unavailable.
-                </div>
-              )}
+              </div>
+              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '28px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
+                {card.query}
+              </h2>
             </div>
 
-            {/* Banner */}
-            <div className="border border-[#dc2626]/30 bg-[#111] overflow-hidden rounded-xl">
-              <div className="bg-[#dc2626] text-black px-6 py-3 font-mono font-bold tracking-widest text-sm flex items-center justify-between">
-                <span>FAILURE TAXONOMY CARD</span>
-              </div>
-              <div className="px-6 py-8 border-b border-gray-800 bg-[#0a0a0a]">
-                <p className="font-mono text-[#dc2626] text-sm mb-1">QUERY:</p>
-                <p className="text-2xl font-light text-white">{card.query}</p>
-              </div>
+            {/* Mechanisms */}
+            <section style={{ marginTop: '48px' }}>
+              <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: '24px' }}>
+                01 — FAILURE MECHANISMS
+              </h3>
+              
+              <div>
+                {card.mechanisms?.map((mech, i) => (
+                  <div key={i} className="slide-left mx-max-md-grid-override" style={{ 
+                    borderBottom: '1px solid var(--border)', padding: '20px 0',
+                    display: 'grid', gridTemplateColumns: '200px 80px 1fr', gap: '32px', alignItems: 'start',
+                    animationDelay: `${i * 80 + 100}ms`
+                  }}>
+                    <h4 style={{ fontFamily: 'var(--font-display)', fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
+                      {mech.name}
+                      <span className="md:hidden ml-2 px-2 py-0.5" style={{
+                        display: 'inline-block',
+                        fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', borderRadius: '2px',
+                        color: mech.frequency.toUpperCase() === 'HIGH' ? 'var(--accent-red)' : 
+                               mech.frequency.toUpperCase() === 'MEDIUM' ? 'var(--accent-amber)' : 'var(--text-secondary)',
+                        border: `1px solid ${mech.frequency.toUpperCase() === 'HIGH' ? 'var(--accent-red-dim)' : 
+                                         mech.frequency.toUpperCase() === 'MEDIUM' ? 'rgba(212,160,23,0.3)' : 'var(--border)'}`,
+                        background: 'transparent'
+                      }}>
+                        {mech.frequency.toUpperCase()}
+                      </span>
+                    </h4>
+                    
+                    <span className="hidden md:inline-block px-2 py-0.5 text-center" style={{
+                      fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', borderRadius: '2px',
+                      color: mech.frequency.toUpperCase() === 'HIGH' ? 'var(--accent-red)' : 
+                             mech.frequency.toUpperCase() === 'MEDIUM' ? 'var(--accent-amber)' : 'var(--text-secondary)',
+                      border: `1px solid ${mech.frequency.toUpperCase() === 'HIGH' ? 'var(--accent-red-dim)' : 
+                                       mech.frequency.toUpperCase() === 'MEDIUM' ? 'rgba(212,160,23,0.3)' : 'var(--border)'}`,
+                      background: 'transparent'
+                    }}>
+                      {mech.frequency.toUpperCase()}
+                    </span>
 
-              <div className="p-6 md:p-8 space-y-12">
-                {/* Broken Assumptions */}
-                <section>
-                  <h3 className="font-mono text-sm text-gray-500 tracking-wider mb-6">BROKEN ASSUMPTIONS</h3>
-                  <div className="space-y-6">
-                    {card.broken_assumptions?.map((ba, i) => (
-                      <div key={i} className="pl-6 border-l-2 border-gray-700 space-y-3">
-                        <p className="text-2xl text-white italic">"{ba.assumption}"</p>
-                        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-                          <span className="text-gray-400">
-                            <span className="font-mono text-[#f59e0b]">HELD BY:</span> {ba.who_held_it}
+                    <div>
+                      <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
+                        {mech.description}
+                      </p>
+                      <div style={{ marginTop: '12px' }}>
+                        {mech.warning_signs?.map((ws, j) => (
+                          <span key={j} style={{
+                            border: '1px solid var(--border-bright)', fontFamily: 'var(--font-mono)', fontSize: '9px', 
+                            color: 'var(--text-muted)', padding: '3px 8px', margin: '4px 4px 0 0', display: 'inline-block'
+                          }}>
+                            {ws}
                           </span>
-                          <span className="text-gray-400">
-                            <span className="font-mono text-[#f59e0b]">REVEALED BY:</span> {ba.what_revealed_it}
-                          </span>
-                        </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Broken Assumptions */}
+            <section style={{ marginTop: '64px' }}>
+              <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: '24px', animationDelay: '200ms' }}>
+                02 — BROKEN ASSUMPTIONS
+              </h3>
+              
+              <div>
+                {card.broken_assumptions?.map((ba, i) => (
+                  <div key={i} className="slide-up" style={{ 
+                    padding: '24px 0 24px 24px', borderBottom: '1px solid var(--border)', borderLeft: '2px solid var(--accent-red-dim)',
+                    animationDelay: `${i * 80 + 300}ms`
+                  }}>
+                    <p style={{ fontFamily: 'var(--font-display)', fontSize: '18px', fontWeight: 600, fontStyle: 'italic', color: 'var(--text-primary)', marginBottom: '12px', lineHeight: 1.4 }}>
+                      "{ba.assumption}"
+                    </p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-secondary)' }}>
+                        WHO HELD IT — <span style={{ color: 'var(--text-muted)' }}>{ba.who_held_it}</span>
+                      </span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-secondary)' }}>
+                        EXPOSED BY — <span style={{ color: 'var(--text-muted)' }}>{ba.what_revealed_it}</span>
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Cross-Domain Transfer */}
+            {card.cross_domain_insights?.length > 0 && (
+              <section style={{ marginTop: '64px' }}>
+                <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: '24px', animationDelay: '300ms' }}>
+                  03 — CROSS-DOMAIN TRANSFER
+                </h3>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {card.cross_domain_insights.map((cdi, i) => (
+                    <div key={i} className="slide-up" style={{ 
+                      background: 'var(--bg-surface)', border: '1px solid var(--border)', borderLeft: '2px solid var(--accent-teal)',
+                      padding: '28px', animationDelay: `${i * 80 + 400}ms`
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--accent-teal)', textTransform: 'uppercase' }}>{cdi.source_domain}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-secondary)' }}>——→</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>QUERY DOMAIN</span>
+                      </div>
+                      
+                      <h5 style={{ fontFamily: 'var(--font-display)', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 8px 0' }}>
+                        {cdi.source_failure}
+                      </h5>
+                      <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', fontStyle: 'italic', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
+                        {cdi.pattern_match}
+                      </p>
+                      
+                      <div style={{ 
+                        marginTop: '16px', padding: '16px', background: 'rgba(26, 138, 122, 0.06)', border: '1px solid rgba(26, 138, 122, 0.15)' 
+                      }}>
+                        <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '8px', letterSpacing: '0.15em', color: 'var(--accent-teal)', marginBottom: '8px' }}>
+                          CONCRETE TRANSLATION
+                        </span>
+                        <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-primary)', lineHeight: 1.6, margin: 0 }}>
+                          {cdi.concrete_translation}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Synthesis Summary Boxes */}
+            <section style={{ marginTop: '64px' }}>
+              <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: '24px', animationDelay: '400ms' }}>
+                04 — SYNTHESIS
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Box 1 */}
+                <div className="slide-up" style={{ 
+                  border: '1px solid var(--accent-red-dim)', background: 'var(--accent-red-glow)', padding: '28px',
+                  animationDelay: '450ms'
+                }}>
+                  <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', color: 'var(--accent-red)', marginBottom: '16px' }}>
+                    THE UNCOMFORTABLE TRUTH
+                  </span>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: '15px', fontWeight: 400, color: 'var(--text-primary)', lineHeight: 1.7, margin: 0 }}>
+                    {card.uncomfortable_truth}
+                  </p>
+                </div>
+
+                {/* Box 2 */}
+                <div className="slide-up" style={{ 
+                  border: '1px solid rgba(212, 160, 23, 0.2)', background: 'rgba(212, 160, 23, 0.04)', padding: '28px',
+                  animationDelay: '500ms'
+                }}>
+                  <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.1em', color: 'var(--accent-amber)', marginBottom: '16px' }}>
+                    IF I WERE STARTING TODAY
+                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {card.if_starting_today?.map((action, i) => (
+                      <div key={i} style={{ display: 'flex', gap: '12px', alignItems: 'start' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: 'var(--accent-amber)', marginTop: '-2px' }}>→</span>
+                        <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-primary)', margin: 0, lineHeight: 1.6 }}>
+                          {action}
+                        </p>
                       </div>
                     ))}
                   </div>
-                </section>
+                </div>
+              </div>
+            </section>
 
-                {/* Mechanisms */}
-                <section>
-                  <h3 className="font-mono text-sm text-gray-500 tracking-wider mb-6">FAILURE MECHANISMS</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {card.mechanisms?.map((mech, i) => (
-                      <div key={i} className="bg-[#111] p-5 rounded-lg border border-gray-800 flex flex-col relative overflow-hidden group hover:border-[#dc2626]/50 transition-colors">
-                        <div className="absolute top-0 right-0 p-3">
-                          <span className="text-[10px] font-mono px-2 py-1 rounded bg-gray-800 text-gray-300">
-                            {mech.frequency.toUpperCase()}
-                          </span>
+            {/* Source Failures */}
+            <section style={{ marginTop: '64px' }}>
+              <h3 className="slide-up" style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: '24px', animationDelay: '500ms' }}>
+                05 — INDEXED SOURCES
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-12">
+                {/* Direct Matches */}
+                <div className="slide-up" style={{ animationDelay: '550ms' }}>
+                  <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                    DIRECT MATCHES
+                  </span>
+                  <div>
+                    {card.direct_matches?.map((m, i) => (
+                      <div key={i} className="match-row" style={{ borderBottom: '1px solid var(--border)', padding: '12px 0' }}
+                           onMouseOver={e => e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'}
+                           onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '8px' }}>
+                          <span style={{ color: 'var(--accent-amber)', fontSize: '14px', lineHeight: 1 }}>●</span>
+                          <span style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: 500 }}>{m.name}</span>
+                          <span style={{ flexGrow: 1 }} />
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-secondary)' }}>{m.domain}</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)' }}>{m.year}</span>
                         </div>
-                        <h4 className="font-mono font-bold text-[#dc2626] text-lg mb-3">{mech.name}</h4>
-                        <p className="text-gray-300 text-sm mb-5 flex-grow leading-relaxed">{mech.description}</p>
-                        <div className="pt-4 border-t border-gray-800/50">
-                          <p className="text-xs font-mono text-gray-500 mb-2">WARNING SIGNS:</p>
-                          <ul className="space-y-1 text-sm text-gray-400">
-                            {mech.warning_signs?.map((ws, j) => (
-                              <li key={j} className="flex items-start gap-2">
-                                <span className="text-[#dc2626] mt-1">•</span> {ws}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
+                        <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--text-secondary)', margin: 0, paddingLeft: '22px', lineHeight: 1.5 }}>
+                          {m.mechanism_overlap}
+                        </p>
                       </div>
                     ))}
-                  </div>
-                </section>
-
-                {/* Cross-Domain Insights */}
-                {card.cross_domain_insights?.length > 0 && (
-                  <section>
-                    <h3 className="font-mono text-sm text-gray-500 tracking-wider mb-6">CROSS-DOMAIN INSIGHTS</h3>
-                    <div className="space-y-4">
-                      {card.cross_domain_insights.map((cdi, i) => (
-                        <div key={i} className="bg-[#111] border border-gray-800 rounded-lg p-6">
-                          <div className="flex items-center gap-3 font-mono text-xs mb-4 text-gray-500">
-                            <span className="uppercase">{cdi.source_domain}</span>
-                            <span className="text-[#14b8a6]">→</span>
-                            <span className="uppercase text-[#14b8a6]">YOUR DOMAIN</span>
-                          </div>
-                          <p className="text-gray-300 mb-4 pb-4 border-b border-gray-800 border-dashed">
-                            <span className="font-bold text-white mr-2">Pattern Match:</span> {cdi.pattern_match}
-                          </p>
-                          <div className="bg-[#14b8a6]/10 border border-[#14b8a6]/20 p-4 rounded text-[#14b8a6] text-sm leading-relaxed">
-                            <span className="font-mono text-xs block mb-2 opacity-80">CONCRETE TRANSLATION:</span>
-                            {cdi.concrete_translation}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                )}
-
-                {/* Summaries */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-                  <div className="border border-[#dc2626]/40 bg-[#111] p-6 rounded-xl relative">
-                    <div className="absolute top-0 left-6 -translate-y-1/2 bg-[#0a0a0a] px-2">
-                      <h4 className="font-mono text-xs text-[#dc2626] font-bold">THE UNCOMFORTABLE TRUTH</h4>
-                    </div>
-                    <p className="text-gray-300 text-sm leading-relaxed mt-2">{card.uncomfortable_truth}</p>
-                  </div>
-
-                  <div className="border border-[#f59e0b]/40 bg-[#111] p-6 rounded-xl relative">
-                    <div className="absolute top-0 left-6 -translate-y-1/2 bg-[#0a0a0a] px-2">
-                      <h4 className="font-mono text-xs text-[#f59e0b] font-bold">IF I WERE STARTING TODAY</h4>
-                    </div>
-                    <ul className="space-y-3 mt-2">
-                      {card.if_starting_today?.map((action, i) => (
-                        <li key={i} className="flex items-start gap-3 text-sm text-gray-300 leading-relaxed">
-                          <span className="text-[#f59e0b] font-mono mt-0.5">{i+1}.</span> {action}
-                        </li>
-                      ))}
-                    </ul>
+                    {(!card.direct_matches || card.direct_matches.length === 0) && (
+                      <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', fontStyle: 'italic', color: 'var(--text-muted)' }}>No high confidence direct matches in the index.</p>
+                    )}
                   </div>
                 </div>
 
-                {/* Source Failures */}
-                <section className="pt-8 border-t border-gray-800">
-                  <h3 className="font-mono text-sm text-gray-500 tracking-wider mb-6">REFERENCED FAILURES</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                    <div>
-                      <h4 className="font-mono text-xs text-[#f59e0b] mb-4 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-[#f59e0b]"></span> DIRECT MATCHES
-                      </h4>
-                      <ul className="space-y-4">
-                        {card.direct_matches?.map((m, i) => (
-                          <li key={i} className="text-sm">
-                            <div className="flex justify-between items-baseline mb-1">
-                              <span className="font-bold text-white">{m.name}</span>
-                              <span className="text-gray-600 text-xs font-mono">{m.domain} • {m.year}</span>
-                            </div>
-                            <p className="text-gray-400 text-xs leading-relaxed">{m.mechanism_overlap}</p>
-                          </li>
-                        ))}
-                        {(!card.direct_matches || card.direct_matches.length === 0) && (
-                          <p className="text-gray-600 text-xs italic">No direct matches found. Relying on cross-domain abstractions.</p>
-                        )}
-                      </ul>
-                    </div>
-                    <div>
-                      <h4 className="font-mono text-xs text-[#14b8a6] mb-4 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-[#14b8a6]"></span> CROSS-DOMAIN MATCHES
-                      </h4>
-                      <ul className="space-y-4">
-                        {card.cross_domain_matches?.map((m, i) => (
-                          <li key={i} className="text-sm">
-                            <div className="flex justify-between items-baseline mb-1">
-                              <span className="font-bold text-white">{m.name}</span>
-                              <span className="text-gray-600 text-xs font-mono">{m.domain} • {m.year}</span>
-                            </div>
-                            <p className="text-gray-400 text-xs leading-relaxed">{m.structural_similarity}</p>
-                          </li>
-                        ))}
-                         {(!card.cross_domain_matches || card.cross_domain_matches.length === 0) && (
-                          <p className="text-gray-600 text-xs italic">No diverse structural matches found.</p>
-                        )}
-                      </ul>
-                    </div>
+                {/* Cross-Domain Matches */}
+                <div className="slide-up" style={{ animationDelay: '600ms' }}>
+                  <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                    CROSS-DOMAIN MATCHES
+                  </span>
+                  <div>
+                    {card.cross_domain_matches?.map((m, i) => (
+                      <div key={i} className="match-row" style={{ borderBottom: '1px solid var(--border)', padding: '12px 0' }}
+                           onMouseOver={e => e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'}
+                           onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '8px' }}>
+                          <span style={{ color: 'var(--accent-teal)', fontSize: '14px', lineHeight: 1 }}>●</span>
+                          <span style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-primary)', fontWeight: 500 }}>{m.name}</span>
+                          <span style={{ flexGrow: 1 }} />
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-secondary)' }}>{m.domain}</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)' }}>{m.year}</span>
+                        </div>
+                        <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--text-secondary)', margin: 0, paddingLeft: '22px', lineHeight: 1.5 }}>
+                          {m.structural_similarity}
+                        </p>
+                      </div>
+                    ))}
+                    {(!card.cross_domain_matches || card.cross_domain_matches.length === 0) && (
+                      <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', fontStyle: 'italic', color: 'var(--text-muted)' }}>No diverse structural analogs retrieved.</p>
+                    )}
                   </div>
-                </section>
+                </div>
               </div>
-
-              {/* Footer */}
-              <div className="px-6 py-4 bg-[#0a0a0a] border-t border-gray-800 text-right">
-                 <p className="font-mono text-xs text-gray-600">Database: {meta?.databaseSize || 0} indexed failures</p>
-              </div>
-            </div>
+            </section>
           </div>
         )}
       </main>
+
+      {/* Global Style Override for specific dynamic responsive elements if needed */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @media (max-width: 768px) {
+          .mx-max-md-grid-override {
+            grid-template-columns: 1fr !important;
+            gap: 16px !important;
+          }
+        }
+        .match-row {
+          transition: background 0.15s ease;
+        }
+      `}} />
     </div>
   )
 }
