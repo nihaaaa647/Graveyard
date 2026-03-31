@@ -47,12 +47,12 @@ npm install
 \`\`\`
 
 ### 3. Environment Configuration
-Create a \`.env.local\` file in the root directory:
-\`\`\`env
-EXA_API_KEY=your_exa_key
-OPENROUTER_API_KEY=your_openrouter_key
-UPSTASH_REDIS_REST_URL=your_upstash_url
-UPSTASH_REDIS_REST_TOKEN=your_upstash_token
+Create a \`.env.local\` file in the root directory: \
+\`\`\`env \
+EXA_API_KEY=your_exa_key \
+OPENROUTER_API_KEY=your_openrouter_key \
+UPSTASH_REDIS_REST_URL=your_upstash_url \
+UPSTASH_REDIS_REST_TOKEN=your_upstash_token 
 \`\`\`
 
 ### 4. Database Seeding
@@ -69,9 +69,3 @@ npm run dev
 Visit \`http://localhost:3000\` to access the terminal.
 
 ---
-
-## ⚖️ Aesthetic Principles
-The visual layer of Graveyard is designed to evoke cold authority. It utilizes a three-tiered typography system (`Syne` for display, `IBM Plex Mono` for raw data, `DM Sans` for legibility), strict grid constraints, staggering micro-animations, and a completely desaturated palette governed by variable accents (`--accent-red`, `--accent-teal`, `--accent-amber`). This is not a consumer app. It is a research instrument.
-
-## License
-MIT License.
