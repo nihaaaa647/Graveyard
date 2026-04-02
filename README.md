@@ -6,7 +6,7 @@
 
 > Every field relearns the same lessons. Graveyard indexes failure so you don't have to repeat it.
 
-Graveyard is an open-source research instrument designed to extract, synthesize, and categorize structural failure mechanisms across disparate professional domains. Instead of presenting surface-level symptoms, Graveyard acts as a failure intelligence engine—deploying neural search and 120B parameter large language models to uncover the abstracted patterns and broken assumptions behind why complex systems crash, businesses fold, and technologies fail.
+Graveyard is an open-source research instrument designed to extract, synthesize, and categorize structural failure mechanisms across disparate professional domains. Instead of presenting surface-level symptoms, Graveyard acts as a failure intelligence engine—deploying neural search and large language models to uncover the abstracted patterns and broken assumptions behind why complex systems crash, businesses fold, and technologies fail.
 
 ---
 
